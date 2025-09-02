@@ -1,5 +1,6 @@
 # tests/conftest.py
 import os
+
 os.environ.setdefault("DATABASE_URL", "sqlite:///./test.db")
 
 import pytest
