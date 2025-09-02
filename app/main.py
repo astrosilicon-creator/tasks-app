@@ -1,54 +1,77 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel, Field
+import os
+from fastapi import FastAPI, HTTPException, Depends
+from sqlmodel import SQLModel, Field, Session, create_engine, select
 
+# --- Database ---
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./tasks.db")
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, echo=False, connect_args=connect_args)
+
+
+def get_session():
+    with Session(engine) as session:
+        yield session
+
+
+class Task(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    title: str = Field(min_length=1, max_length=120)
+    status: str = Field(default="todo", regex="^(todo|doing|done)$")
+
+
+# --- App ---
 app = FastAPI(title="Tasks API")
 
-# ---- Fake DB in memory for Phase 1 ----
-TASKS: list[dict] = []
-NEXT_ID = 1
 
-class TaskIn(BaseModel):
-    title: str = Field(min_length=1)
-    status: str = Field(default="todo", pattern="^(todo|doing|done)$")
+@app.on_event("startup")
+def on_startup():
+    SQLModel.metadata.create_all(engine)
 
-class Task(TaskIn):
-    id: int
 
 @app.get("/ping")
 def ping():
     return {"ok": True}
 
+
 @app.post("/tasks", response_model=Task, status_code=201)
-def create_task(task: TaskIn):
-    global NEXT_ID
-    new = {"id": NEXT_ID, **task.model_dump()}
-    TASKS.append(new)
-    NEXT_ID += 1
-    return new
+def create_task(task: Task, session: Session = Depends(get_session)):
+    session.add(task)
+    session.commit()
+    session.refresh(task)
+    return task
+
 
 @app.get("/tasks", response_model=list[Task])
-def list_tasks():
-    return TASKS
+def list_tasks(session: Session = Depends(get_session)):
+    return session.exec(select(Task)).all()
+
 
 @app.get("/tasks/{task_id}", response_model=Task)
-def get_task(task_id: int):
-    for t in TASKS:
-        if t["id"] == task_id:
-            return t
-    raise HTTPException(status_code=404, detail="Not found")
+def get_task(task_id: int, session: Session = Depends(get_session)):
+    task = session.get(Task, task_id)
+    if not task:
+        raise HTTPException(404, "Not found")
+    return task
+
 
 @app.put("/tasks/{task_id}", response_model=Task)
-def update_task(task_id: int, data: TaskIn):
-    for t in TASKS:
-        if t["id"] == task_id:
-            t.update(data.model_dump())
-            return t
-    raise HTTPException(status_code=404, detail="Not found")
+def update_task(task_id: int, data: Task, session: Session = Depends(get_session)):
+    task = session.get(Task, task_id)
+    if not task:
+        raise HTTPException(404, "Not found")
+    task.title = data.title
+    task.status = data.status
+    session.add(task)
+    session.commit()
+    session.refresh(task)
+    return task
+
 
 @app.delete("/tasks/{task_id}", status_code=204)
-def delete_task(task_id: int):
-    for i, t in enumerate(TASKS):
-        if t["id"] == task_id:
-            TASKS.pop(i)
-            return
-    raise HTTPException(status_code=404, detail="Not found")
+def delete_task(task_id: int, session: Session = Depends(get_session)):
+    task = session.get(Task, task_id)
+    if not task:
+        raise HTTPException(404, "Not found")
+    session.delete(task)
+    session.commit()
+    return
