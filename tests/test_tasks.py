@@ -3,6 +3,7 @@ from app.main import app
 
 client = TestClient(app)
 
+
 def test_create_list_update_delete():
     # create
     r = client.post("/tasks", json={"title": "Buy milk", "status": "todo"})
