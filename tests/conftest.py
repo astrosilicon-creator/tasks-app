@@ -1,8 +1,16 @@
-# tests/conftest.py
-from pathlib import Path
-import sys
+import pytest
+from fastapi.testclient import TestClient
+from sqlmodel import SQLModel
+from app.main import app, engine
 
-# Add the project root (the folder that contains 'app') to sys.path
-ROOT = Path(__file__).resolve().parents[1]
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+@pytest.fixture(autouse=True)
+def reset_db():
+    # Ensure a clean schema for every test
+    SQLModel.metadata.drop_all(engine)
+    SQLModel.metadata.create_all(engine)
+
+@pytest.fixture
+def client():
+    # Use context manager so FastAPI startup/shutdown events run
+    with TestClient(app) as c:
+        yield c
