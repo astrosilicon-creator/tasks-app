@@ -1,6 +1,7 @@
 import os
-from fastapi import FastAPI, HTTPException, Depends
-from sqlmodel import SQLModel, Field, Session, create_engine, select
+
+from fastapi import Depends, FastAPI, HTTPException
+from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 # --- Database ---
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./tasks.db")
