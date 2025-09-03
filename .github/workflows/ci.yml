@@ -4,6 +4,8 @@ on: [push, pull_request]
 jobs:
   test:
     runs-on: ubuntu-latest
+     env:
+      DATABASE_URL: "sqlite:///./test.db"
     steps:
       - uses: actions/checkout@v4
 
@@ -24,4 +26,4 @@ jobs:
         run: black --check .
 
       - name: Pytest
-        run: pytest --cov=app --cov-report=term-missing -q
+        run: pytest --cov=app --cov-report=term-missing --cov-fail-under=80 -q
