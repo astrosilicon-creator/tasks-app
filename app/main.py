@@ -1,6 +1,9 @@
 import os
+from contextlib import asynccontextmanager
+from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
+from sqlalchemy import func
 from sqlmodel import Field, Session, SQLModel, create_engine, select
 
 # --- Database ---
@@ -20,13 +23,19 @@ class Task(SQLModel, table=True):
     status: str = Field(default="todo", regex="^(todo|doing|done)$")
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    SQLModel.metadata.create_all(engine)  # runs at startup
+    yield
+
+
 # --- App ---
 app = FastAPI(title="Tasks API")
 
-
-@app.on_event("startup")
-def on_startup():
-    SQLModel.metadata.create_all(engine)
+# Not needed with lifespan
+# @app.on_event("startup")
+# def on_startup():
+#    SQLModel.metadata.create_all(engine)
 
 
 @app.get("/ping")
@@ -43,8 +52,34 @@ def create_task(task: Task, session: Session = Depends(get_session)):
 
 
 @app.get("/tasks", response_model=list[Task])
-def list_tasks(session: Session = Depends(get_session)):
-    return session.exec(select(Task)).all()
+def list_tasks(
+    q: Optional[str] = None,
+    status: Optional[str] = Query(None, pattern="^(todo|doing|done)$"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
+    sort: Optional[str] = Query(
+        None,
+        description="id,title,status or -id/-title/-status",
+    ),
+    session: Session = Depends(get_session),
+):
+    stmt = select(Task)
+    if q:
+        stmt = stmt.where(func.lower(Task.title).like(f"%{q.lower()}%"))
+    if status:
+        stmt = stmt.where(Task.status == status)
+
+    if sort:
+        desc = sort.startswith("-")
+        field = sort.lstrip("-")
+        field_map = {"id": Task.id, "title": Task.title, "status": Task.status}
+        if field in field_map:
+            order_col = field_map[field].desc() if desc else field_map[field]
+            stmt = stmt.order_by(order_col)
+
+    offset = (page - 1) * page_size
+    stmt = stmt.offset(offset).limit(page_size)
+    return session.exec(stmt).all()
 
 
 @app.get("/tasks/{task_id}", response_model=Task)
